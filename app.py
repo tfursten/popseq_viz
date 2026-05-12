@@ -99,6 +99,29 @@ def parse_position_filter(text):
     }
 
 
+def default_metadata_columns(columns):
+    columns = list(columns)
+    preferred = ["week", "Person", "BodySite"]
+    selected = []
+    used = set()
+    lower_to_column = {str(col).lower(): col for col in columns}
+
+    for name in preferred:
+        match = lower_to_column.get(name.lower())
+        if match is not None and match not in used:
+            selected.append(match)
+            used.add(match)
+
+    for col in columns:
+        if len(selected) >= 3:
+            break
+        if col not in used:
+            selected.append(col)
+            used.add(col)
+
+    return selected[:3]
+
+
 def branch_length(clade):
     val = getattr(clade, "branch_length", None)
     try:
@@ -652,7 +675,11 @@ if metadata_df is not None:
         metadata_key = st.selectbox("Tip lookup column", metadata_df.columns.tolist(), index=0)
         sample_key = st.selectbox("Sample lookup column", metadata_df.columns.tolist(), index=0)
         available_meta = [c for c in metadata_df.columns if c != metadata_key]
-        selected_dot_cols = st.multiselect("Metadata dot columns", available_meta, default=available_meta[:min(3, len(available_meta))])
+        selected_dot_cols = st.multiselect(
+            "Metadata dot columns",
+            available_meta,
+            default=default_metadata_columns(available_meta),
+        )
         label_cols = st.multiselect("Tip label metadata", metadata_df.columns.tolist(), default=[])
         metadata_left_pad = st.slider("Metadata dot left pad", 0.0, 10.0, 1.0, 0.05)
         dot_spacing = st.slider("Metadata column spacing", 0.05, 5.0, 0.45, 0.05)
@@ -703,7 +730,7 @@ if freq_df is not None:
             st.caption(f"{len(parsed_position_filter)} true position(s) entered")
         else:
             parsed_position_filter = set()
-        row_gap = st.slider("Sample row spacing", 0.2, 3.0, 0.75, 0.05)
+        row_gap = st.slider("Sample row spacing", 0.2, 3.0, 1.15, 0.05)
         bar_x_shift = st.slider("Bar chart horizontal shift", -10.0, 10.0, 0.0, 0.05)
         bar_gap = st.slider("Bar spacing", 0.01, 1.0, 0.08, 0.01)
         bar_width = st.slider("Bar width", 0.005, 0.5, 0.045, 0.005)
@@ -720,6 +747,7 @@ if freq_df is not None:
         sort_mode = st.selectbox(
             "Genome position order",
             ["relative position", "sample priority", "mean frequency", "consensus seriation"],
+            index=3,
         )
         consensus_min_contrast = 0.0
         consensus_power = 1.0
@@ -809,7 +837,7 @@ else:
     consensus_min_contrast = 0.0
     consensus_power = 1.0
     sample_labels = {}
-    row_gap = 0.75
+    row_gap = 1.15
     bar_x_shift = 0.0
     bar_gap = 0.08
     bar_width = 0.045
