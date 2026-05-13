@@ -101,7 +101,7 @@ def parse_position_filter(text):
 
 def default_metadata_columns(columns):
     columns = list(columns)
-    preferred = ["week", "Person", "BodySite"]
+    preferred = ["week", "Person", "BodySite", "ST"]
     selected = []
     used = set()
     lower_to_column = {str(col).lower(): col for col in columns}
@@ -113,13 +113,13 @@ def default_metadata_columns(columns):
             used.add(match)
 
     for col in columns:
-        if len(selected) >= 3:
+        if len(selected) >= len(preferred):
             break
         if col not in used:
             selected.append(col)
             used.add(col)
 
-    return selected[:3]
+    return selected[:len(preferred)]
 
 
 def branch_length(clade):
@@ -680,7 +680,11 @@ if metadata_df is not None:
             available_meta,
             default=default_metadata_columns(available_meta),
         )
-        label_cols = st.multiselect("Tip label metadata", metadata_df.columns.tolist(), default=[])
+        label_cols = st.multiselect(
+            "Tip label metadata",
+            metadata_df.columns.tolist(),
+            default=default_metadata_columns(metadata_df.columns),
+        )
         metadata_left_pad = st.slider("Metadata dot left pad", 0.0, 10.0, 1.0, 0.05)
         dot_spacing = st.slider("Metadata column spacing", 0.05, 5.0, 0.45, 0.05)
         dot_size = st.slider("Metadata dot size", 4, 18, 9)
