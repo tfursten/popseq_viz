@@ -390,8 +390,6 @@ def position_order_for_node(
     selected_samples,
     sort_mode,
     sort_samples,
-    consensus_min_contrast=0.0,
-    consensus_power=1.0,
 ):
     pos = node_df[["true_pos", "relative_pos_num"]].drop_duplicates()
     if pos.empty:
@@ -429,74 +427,6 @@ def position_order_for_node(
             kind="stable",
         )["true_pos"].astype(str).tolist()
 
-    if sort_mode == "consensus seriation":
-        freq_pivot = node_df.pivot_table(index="true_pos", columns="Sample", values="frequency", aggfunc="mean")
-        depth_pivot = node_df.pivot_table(index="true_pos", columns="Sample", values="depth_num", aggfunc="mean")
-        freq_pivot = freq_pivot.reindex(columns=selected_samples)
-        depth_pivot = depth_pivot.reindex(columns=selected_samples)
-        transformed = np.arcsin(np.sqrt(freq_pivot.clip(lower=0.0, upper=1.0)))
-        weights = depth_pivot.where(depth_pivot > 0, 1.0).fillna(0.0)
-        weighted_sum = (transformed.fillna(0.0) * weights).sum(axis=1)
-        weight_sum = weights.where(transformed.notna(), 0.0).sum(axis=1)
-        weighted_score = weighted_sum / weight_sum.replace(0.0, np.nan)
-        value_count = transformed.notna().sum(axis=1)
-        rel_pos = pos.set_index("true_pos")["relative_pos_num"]
-        order_df = pd.DataFrame({
-            "true_pos": transformed.index.astype(str),
-            "weighted_score": weighted_score.fillna(-1.0),
-            "value_count": value_count,
-            "relative_pos_num": transformed.index.map(rel_pos),
-        }).reset_index(drop=True)
-        order = order_df.sort_values(
-            ["weighted_score", "value_count", "relative_pos_num", "true_pos"],
-            ascending=[False, False, True, True],
-            kind="stable",
-            na_position="last",
-        )["true_pos"].tolist()
-
-        x_lookup = transformed.to_dict(orient="index")
-        n_lookup = depth_pivot.to_dict(orient="index")
-        min_contrast = float(consensus_min_contrast)
-        contrast_power = float(consensus_power)
-
-        def contrast_value(diff):
-            sign = 1.0 if diff >= 0 else -1.0
-            magnitude = abs(float(diff))
-            if magnitude <= min_contrast:
-                return 0.0
-            return sign * ((magnitude - min_contrast) ** contrast_power)
-
-        def pair_support(left_pos, right_pos):
-            support = 0.0
-            left_x = x_lookup.get(left_pos, {})
-            right_x = x_lookup.get(right_pos, {})
-            left_n = n_lookup.get(left_pos, {})
-            right_n = n_lookup.get(right_pos, {})
-            for sample in selected_samples:
-                x_left = left_x.get(sample)
-                x_right = right_x.get(sample)
-                if pd.isna(x_left) or pd.isna(x_right):
-                    continue
-                n_left = left_n.get(sample)
-                n_right = right_n.get(sample)
-                if pd.isna(n_left) or float(n_left) <= 0:
-                    n_left = 1.0
-                if pd.isna(n_right) or float(n_right) <= 0:
-                    n_right = 1.0
-                weight = 1.0 / ((1.0 / float(n_left)) + (1.0 / float(n_right)))
-                support += weight * contrast_value(float(x_left) - float(x_right))
-            return support
-
-        for _ in range(max(1, len(order))):
-            swapped = False
-            for idx in range(len(order) - 1):
-                if pair_support(order[idx], order[idx + 1]) < 0:
-                    order[idx], order[idx + 1] = order[idx + 1], order[idx]
-                    swapped = True
-            if not swapped:
-                break
-        return order
-
     return pos.sort_values(["relative_pos_num", "true_pos"], kind="stable")["true_pos"].astype(str).tolist()
 
 
@@ -526,8 +456,7 @@ def add_metadata_tracks(fig, merged_tips, metadata_cols, start_x, spacing, marke
 
 def add_frequency_bars(fig, freq_df, node_df, selected_samples, sample_colors, sample_labels,
                        sort_mode, sort_samples, row_gap, bar_gap, bar_width,
-                       bar_height, min_frequency_to_plot, x_shift,
-                       consensus_min_contrast=0.0, consensus_power=1.0):
+                       bar_height, min_frequency_to_plot, x_shift):
     max_x = None
     if freq_df.empty or not selected_samples:
         return max_x
@@ -544,8 +473,6 @@ def add_frequency_bars(fig, freq_df, node_df, selected_samples, sample_colors, s
             selected_samples,
             sort_mode,
             sort_samples,
-            consensus_min_contrast=consensus_min_contrast,
-            consensus_power=consensus_power,
         )
         if not order:
             continue
@@ -717,9 +644,6 @@ if freq_df is not None:
     sample_table = build_sample_table(freq_df, metadata_df, sample_key)
     sample_table = sample_table.copy()
     sample_table.insert(0, "Select", False)
-    default_n = min(3, len(sample_table))
-    if default_n:
-        sample_table.loc[:default_n - 1, "Select"] = True
 
     with st.sidebar:
         st.header("Frequencies")
@@ -759,27 +683,8 @@ if freq_df is not None:
         )
         sort_mode = st.selectbox(
             "Genome position order",
-            ["relative position", "sample priority", "mean frequency", "consensus seriation"],
+            ["mean frequency", "relative position", "sample priority"],
         )
-        consensus_min_contrast = 0.0
-        consensus_power = 1.0
-        if sort_mode == "consensus seriation":
-            consensus_min_contrast = st.slider(
-                "Consensus minimum contrast",
-                0.0,
-                0.25,
-                0.02,
-                0.005,
-                help="Differences this small on the arcsine-sqrt scale count as zero.",
-            )
-            consensus_power = st.slider(
-                "Consensus contrast power",
-                1.0,
-                3.0,
-                1.5,
-                0.1,
-                help="Higher values make large differences dominate small differences more strongly.",
-            )
 
     st.subheader("Population Samples")
     sample_table_view = sample_table.copy()
@@ -800,7 +705,7 @@ if freq_df is not None:
                     col,
                     vals,
                     default=[],
-                    key=f"sample_filter_{col}",
+                    key=f"sample_filter_v2_{col}",
                 )
             if selected_vals:
                 sample_table_view = sample_table_view[
@@ -811,7 +716,7 @@ if freq_df is not None:
         hide_index=True,
         use_container_width=True,
         disabled=[c for c in sample_table.columns if c != "Select"],
-        key="sample_selector",
+        key="sample_selector_v2",
     )
     selected_sample_table = edited_samples[edited_samples["Select"]].copy()
     selected_samples = selected_sample_table["Sample"].astype(str).tolist()
@@ -847,10 +752,8 @@ if freq_df is not None:
     )
 else:
     hidden_nodes = []
-    sort_mode = "relative position"
+    sort_mode = "mean frequency"
     sort_samples = []
-    consensus_min_contrast = 0.0
-    consensus_power = 1.0
     sample_labels = {}
     row_gap = 0.75
     bar_x_shift = 0.0
@@ -938,8 +841,6 @@ if freq_df is not None and selected_samples:
         bar_height,
         min_frequency_to_plot,
         bar_x_shift,
-        consensus_min_contrast,
-        consensus_power,
     )
 
 right_extent = float(nodes["x"].max()) + tip_label_offset + 2.0 if not nodes.empty else 10.0
