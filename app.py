@@ -753,6 +753,8 @@ if freq_df is not None:
         filter_widgets = st.columns(len(filter_cols))
         for widget_col, col in zip(filter_widgets, filter_cols):
             vals = sorted(sample_table[col].dropna().astype(str).unique())
+            if not vals:
+                continue
             with widget_col:
                 selected_vals = st.multiselect(
                     col,
@@ -760,9 +762,10 @@ if freq_df is not None:
                     default=vals,
                     key=f"sample_filter_{col}",
                 )
-            sample_table_view = sample_table_view[
-                sample_table_view[col].astype(str).isin(selected_vals)
-            ]
+            if set(selected_vals) != set(vals):
+                sample_table_view = sample_table_view[
+                    sample_table_view[col].astype(str).isin(selected_vals)
+                ]
     edited_samples = st.data_editor(
         sample_table_view,
         hide_index=True,
