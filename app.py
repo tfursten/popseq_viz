@@ -99,6 +99,26 @@ def parse_position_filter(text):
     }
 
 
+def default_metadata_columns(columns):
+    columns = list(columns)
+    preferred = ["person", "week", "bodysite"]
+    selected = []
+    used = set()
+    normalized_to_column = {normalize_metadata_column_name(col): col for col in columns}
+
+    for name in preferred:
+        match = normalized_to_column.get(name)
+        if match is not None and match not in used:
+            selected.append(match)
+            used.add(match)
+
+    return selected
+
+
+def normalize_metadata_column_name(column):
+    return "".join(ch for ch in str(column).lower() if ch.isalnum())
+
+
 def branch_length(clade):
     val = getattr(clade, "branch_length", None)
     try:
@@ -305,19 +325,31 @@ def build_sample_table(freq_df, metadata_df=None, sample_key=None):
     return samples.merge(md, left_on="Sample", right_on=sample_key, how="left")
 
 
-def is_categorical_filter_column(series):
-    if pd.api.types.is_bool_dtype(series):
-        return True
-    if pd.api.types.is_numeric_dtype(series):
-        return False
+def normalized_column_name(column):
+    return "".join(ch for ch in str(column).lower() if ch.isalnum())
 
-    non_missing = series.dropna().astype(str).str.strip()
-    non_missing = non_missing[non_missing != ""]
-    if non_missing.empty:
-        return True
 
-    numeric_values = pd.to_numeric(non_missing, errors="coerce")
-    return not numeric_values.notna().all()
+def is_population_filter_column(column):
+    normalized = normalized_column_name(column)
+    return normalized in {
+        "week",
+        "person",
+        "bodysite",
+    }
+
+
+def sorted_filter_values(column, values):
+    vals = [str(val) for val in pd.Series(values).dropna().astype(str).unique()]
+    if normalized_column_name(column) != "week":
+        return sorted(vals)
+
+    def week_sort_key(value):
+        numeric = pd.to_numeric(str(value).strip(), errors="coerce")
+        if pd.notna(numeric):
+            return (0, float(numeric), str(value))
+        return (1, math.inf, str(value).lower())
+
+    return sorted(vals, key=week_sort_key)
 
 
 def apply_frequency_filters(
@@ -652,8 +684,16 @@ if metadata_df is not None:
         metadata_key = st.selectbox("Tip lookup column", metadata_df.columns.tolist(), index=0)
         sample_key = st.selectbox("Sample lookup column", metadata_df.columns.tolist(), index=0)
         available_meta = [c for c in metadata_df.columns if c != metadata_key]
-        selected_dot_cols = st.multiselect("Metadata dot columns", available_meta, default=available_meta[:min(3, len(available_meta))])
-        label_cols = st.multiselect("Tip label metadata", metadata_df.columns.tolist(), default=[])
+        selected_dot_cols = st.multiselect(
+            "Metadata dot columns",
+            available_meta,
+            default=default_metadata_columns(available_meta),
+        )
+        label_cols = st.multiselect(
+            "Tip label metadata",
+            metadata_df.columns.tolist(),
+            default=default_metadata_columns(metadata_df.columns),
+        )
         metadata_left_pad = st.slider("Metadata dot left pad", 0.0, 10.0, 1.0, 0.05)
         dot_spacing = st.slider("Metadata column spacing", 0.05, 5.0, 0.45, 0.05)
         dot_size = st.slider("Metadata dot size", 4, 18, 9)
@@ -746,23 +786,23 @@ if freq_df is not None:
     filter_cols = [
         c
         for c in sample_table.columns
-        if c != "Select" and is_categorical_filter_column(sample_table[c])
+        if c != "Select" and is_population_filter_column(c)
     ]
     if filter_cols:
         st.caption("Column filters")
         filter_widgets = st.columns(len(filter_cols))
         for widget_col, col in zip(filter_widgets, filter_cols):
-            vals = sorted(sample_table[col].dropna().astype(str).unique())
+            vals = sorted_filter_values(col, sample_table[col])
             if not vals:
                 continue
             with widget_col:
                 selected_vals = st.multiselect(
                     col,
                     vals,
-                    default=vals,
+                    default=[],
                     key=f"sample_filter_{col}",
                 )
-            if set(selected_vals) != set(vals):
+            if selected_vals:
                 sample_table_view = sample_table_view[
                     sample_table_view[col].astype(str).isin(selected_vals)
                 ]
