@@ -301,12 +301,32 @@ def validate_frequency_table(df):
 def normalize_frequency_table(df):
     validate_frequency_table(df)
     out = df.copy()
+    if "row_type" not in out.columns:
+        out["row_type"] = "site"
+    out["row_type"] = out["row_type"].fillna("").astype(str)
+    out.loc[out["row_type"] == "", "row_type"] = "site"
     out["Sample"] = out["Sample"].astype(str)
     out["node"] = out["node"].astype(str)
     out["node_norm"] = out["node"].map(normalize_name)
     out["true_pos"] = out["true_pos"].map(normalize_position_value)
     out["relative_pos_num"] = pd.to_numeric(out["relative_pos"], errors="coerce")
     out["frequency"] = pd.to_numeric(out["derived_allele_frequency"], errors="coerce")
+    for col in [
+        "summary_min_frequency",
+        "summary_q1_frequency",
+        "summary_median_frequency",
+        "summary_q3_frequency",
+        "summary_max_frequency",
+        "summary_mean_frequency",
+        "summary_n_sites",
+        "summary_total_node_sites",
+        "summary_n_depth_covered",
+        "summary_n_segregating_sites",
+        "summary_median_depth",
+        "summary_lofreq_sites",
+    ]:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
     out["depth_num"] = pd.to_numeric(out["depth"], errors="coerce")
     out["lofreq"] = pd.to_numeric(out["in_lofreq_vcf"], errors="coerce").fillna(0).astype(int)
     out["derived_reads"] = out.apply(
@@ -456,12 +476,166 @@ def add_metadata_tracks(fig, merged_tips, metadata_cols, start_x, spacing, marke
 
 def add_frequency_bars(fig, freq_df, node_df, selected_samples, sample_colors, sample_labels,
                        sort_mode, sort_samples, row_gap, bar_gap, bar_width,
-                       bar_height, min_frequency_to_plot, x_shift):
+                       bar_height, min_frequency_to_plot, x_shift, range_width_scale):
     max_x = None
     if freq_df.empty or not selected_samples:
         return max_x
 
+    summary_mask = freq_df.get("row_type", pd.Series("", index=freq_df.index)).astype(str).eq("large_node_summary")
+    summary_df = freq_df[summary_mask].copy()
+    freq_df = freq_df[~summary_mask].copy()
     node_lookup = node_df.set_index("node_norm").to_dict("index")
+
+    for node_norm, node_freq in summary_df.groupby("node_norm", sort=False):
+        if node_norm not in node_lookup:
+            continue
+        anchor = node_lookup[node_norm]
+        x_anchor = float(anchor.get("bar_x", anchor["x"])) + float(x_shift)
+        y_anchor = float(anchor["y"])
+        width_scale = max(0.25, float(range_width_scale))
+        x_zero = x_anchor
+        node_right = x_zero + width_scale + bar_width
+        max_x = node_right if max_x is None else max(max_x, node_right)
+
+        plotted_sample_idx = 0
+        for sample in selected_samples:
+            sample_df = node_freq[node_freq["Sample"] == sample].copy()
+            if sample_df.empty:
+                continue
+            row = sample_df.iloc[0]
+            summary_min = row.get("summary_min_frequency")
+            summary_q1 = row.get("summary_q1_frequency")
+            summary_median = row.get("summary_median_frequency")
+            summary_q3 = row.get("summary_q3_frequency")
+            summary_max = row.get("summary_max_frequency")
+            if pd.isna(summary_min) or pd.isna(summary_max):
+                continue
+            if float(summary_max) < float(min_frequency_to_plot):
+                continue
+
+            baseline = y_anchor - (plotted_sample_idx + 1) * row_gap
+            plotted_sample_idx += 1
+            color = sample_colors.get(sample, "#1f77b4")
+            x_min = x_zero + float(summary_min) * width_scale
+            x_max = x_zero + float(summary_max) * width_scale
+            x_q1 = x_zero + float(summary_q1) * width_scale if pd.notna(summary_q1) else x_min
+            x_median = x_zero + float(summary_median) * width_scale if pd.notna(summary_median) else x_min
+            x_q3 = x_zero + float(summary_q3) * width_scale if pd.notna(summary_q3) else x_max
+            n_sites = row.get("summary_n_sites")
+            n_total_sites = row.get("summary_total_node_sites")
+            n_seg = row.get("summary_n_segregating_sites")
+            custom = [[
+                row.get("node", ""),
+                sample,
+                n_sites,
+                n_total_sites,
+                n_seg,
+                summary_min,
+                summary_q1,
+                summary_median,
+                summary_q3,
+                summary_max,
+                row.get("summary_mean_frequency"),
+            ]]
+
+            fig.add_trace(go.Scatter(
+                x=[x_zero, x_zero + width_scale],
+                y=[baseline + 0.5 * bar_height, baseline + 0.5 * bar_height],
+                mode="lines",
+                line=dict(color="#777", width=1.2),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            fig.add_trace(go.Scatter(
+                x=[x_zero, x_zero + width_scale],
+                y=[baseline + 0.5 * bar_height, baseline + 0.5 * bar_height],
+                mode="markers",
+                marker=dict(
+                    symbol="line-ns-open",
+                    size=max(10, bar_height * 10),
+                    color="#777",
+                    line=dict(color="#777", width=1),
+                ),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+            fig.add_trace(go.Scatter(
+                x=[x_min, x_max],
+                y=[baseline + 0.5 * bar_height, baseline + 0.5 * bar_height],
+                mode="lines",
+                line=dict(color=color, width=max(3, bar_height * 4)),
+                showlegend=False,
+                customdata=custom * 2,
+                hovertemplate=(
+                    "Node: %{customdata[0]}<br>Sample: %{customdata[1]}<br>"
+                    "Sample sites with data: %{customdata[2]}<br>"
+                    "Total node sites: %{customdata[3]}<br>"
+                    "Segregating sites in sample: %{customdata[4]}<br>"
+                    "Min: %{customdata[5]:.4f}<br>"
+                    "Q1: %{customdata[6]:.4f}<br>"
+                    "Median: %{customdata[7]:.4f}<br>"
+                    "Q3: %{customdata[8]:.4f}<br>"
+                    "Max: %{customdata[9]:.4f}<br>"
+                    "Mean: %{customdata[10]:.4f}<extra></extra>"
+                ),
+            ))
+            fig.add_trace(go.Scatter(
+                x=[x_q1, x_q3],
+                y=[baseline + 0.5 * bar_height, baseline + 0.5 * bar_height],
+                mode="lines",
+                line=dict(color=color, width=max(6, bar_height * 7)),
+                opacity=0.65,
+                showlegend=False,
+                customdata=custom * 2,
+                hovertemplate=(
+                    "Node: %{customdata[0]}<br>Sample: %{customdata[1]}<br>"
+                    "Sample sites with data: %{customdata[2]}<br>"
+                    "Total node sites: %{customdata[3]}<br>"
+                    "Segregating sites in sample: %{customdata[4]}<br>"
+                    "IQR: %{customdata[6]:.4f} - %{customdata[8]:.4f}<br>"
+                    "Median: %{customdata[7]:.4f}<extra></extra>"
+                ),
+            ))
+            fig.add_trace(go.Scatter(
+                x=[x_min, x_median, x_max],
+                y=[baseline + 0.5 * bar_height] * 3,
+                mode="markers",
+                marker=dict(
+                    symbol=["line-ns-open", "diamond", "line-ns-open"],
+                    size=[14, 8, 14],
+                    color=[color, "#111", color],
+                    line=dict(color="#111", width=1),
+                ),
+                showlegend=False,
+                customdata=custom * 3,
+                hovertemplate=(
+                    "Node: %{customdata[0]}<br>Sample: %{customdata[1]}<br>"
+                    "Sample sites with data: %{customdata[2]}<br>"
+                    "Total node sites: %{customdata[3]}<br>"
+                    "Segregating sites in sample: %{customdata[4]}<br>"
+                    "Min/Q1/median/Q3/max: %{customdata[5]:.4f} / %{customdata[6]:.4f} / "
+                    "%{customdata[7]:.4f} / %{customdata[8]:.4f} / %{customdata[9]:.4f}<extra></extra>"
+                ),
+            ))
+            fig.add_annotation(
+                x=x_zero - bar_gap,
+                y=baseline + 0.5 * bar_height,
+                text=f"{anchor['node']} | {sample_labels.get(sample, sample)}",
+                showarrow=False,
+                xanchor="right",
+                yanchor="middle",
+                font=dict(size=10, color=color),
+            )
+            fig.add_annotation(
+                x=x_zero + width_scale + max(bar_gap, bar_width),
+                y=baseline + 0.5 * bar_height,
+                text=f"{float(summary_min):.2f}-{float(summary_max):.2f}",
+                showarrow=False,
+                xanchor="left",
+                yanchor="middle",
+                font=dict(size=9, color="#333"),
+            )
+
     for node_norm, node_freq in freq_df.groupby("node_norm", sort=False):
         if node_norm not in node_lookup:
             continue
@@ -672,6 +846,7 @@ if freq_df is not None:
         bar_gap = st.slider("Bar spacing", 0.01, 1.0, 0.08, 0.01)
         bar_width = st.slider("Bar width", 0.005, 0.5, 0.045, 0.005)
         bar_height = st.slider("Bar height", 0.2, 2.0, 1.0, 0.05)
+        range_width_scale = st.slider("Large-node range width", 0.25, 10.0, 1.5, 0.05)
         min_frequency_slider = st.slider("Minimum frequency quick set", 0.0, 0.1, 0.0, 0.001)
         min_frequency_to_plot = st.number_input(
             "Minimum frequency to plot",
@@ -760,6 +935,7 @@ else:
     bar_gap = 0.08
     bar_width = 0.045
     bar_height = 1.0
+    range_width_scale = 1.5
     min_frequency_to_plot = 0.0
 
 fig = go.Figure()
@@ -841,6 +1017,7 @@ if freq_df is not None and selected_samples:
         bar_height,
         min_frequency_to_plot,
         bar_x_shift,
+        range_width_scale,
     )
 
 right_extent = float(nodes["x"].max()) + tip_label_offset + 2.0 if not nodes.empty else 10.0
@@ -909,6 +1086,9 @@ if freq_df is not None and selected_samples:
     table_cols = [
         "Sample", "node", "child_node", "true_pos", "relative_pos", "derived_allele",
         "frequency", "depth", "lofreq", "edge_state1", "edge_state2", "ref", "A", "C", "G", "T",
+        "row_type", "summary_n_sites", "summary_total_node_sites", "summary_n_segregating_sites",
+        "summary_min_frequency", "summary_q1_frequency", "summary_median_frequency",
+        "summary_q3_frequency", "summary_max_frequency", "summary_mean_frequency",
     ]
     st.dataframe(filtered_freq[[c for c in table_cols if c in filtered_freq.columns]], use_container_width=True)
 
