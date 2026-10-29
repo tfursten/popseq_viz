@@ -7,6 +7,13 @@ using Show checkboxes in the table above the chart. The Selected population
 SNP coverage panel reports available and missing SNPs for each selection. The original tree viewer is available in the
 page navigation, or directly with `streamlit run viz/tree_app.py`.
 
+## Upload size on Streamlit Community Cloud
+`.streamlit/config.toml` in this repository sets `server.maxUploadSize = 1024`
+(1 GB per file) for both viewers. Include this file when pushing the repository
+to the branch deployed on Community Cloud, then reboot the hosted app for the
+server setting to take effect. The limit does not increase available server
+memory. For a local launch, run from the viz directory to use this config.
+
 ## Original tree viewer specifications
 Load a newick file with labeled nodes, allow file upload or pasting. Draw it allowing options for cladogram or phylogram. Keep tip labels but allow them to be hidden. Keep node labels but allow them to be hidden. Show branch distances. Provide controls for offsets for each of these labels. Allow the font size to be adjusted. Allow nodes to show name and distance on hover. For branch lengths over a certain configurable size (default 30), change their branch length for plotting to be that value but still label it with the original value.
 Load a metadata file. Assume the first column includes names that match the tip labels but offer a way to set which column should be used for lookup. Allow columns to be selected to be included in right aligned columns of color coded dots next to tips. Allow selection of which items to include in the tip labels instead of the current label, color code the text for each piece of meta data to match circles. Hovering over the tips should provide all metadata.
