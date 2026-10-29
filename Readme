@@ -1,0 +1,109 @@
+## Main app
+Run `streamlit run app.py` from the viz directory, or
+`streamlit run viz/app.py` from the project root. The default page is the
+Original tree viewer. The Nested SNP Explorer (Beta) page has isolate filters, metadata colors, population rows,
+fixed-width outlined bars and letter-value boxen summaries. Select populations
+using Show checkboxes in the table above the chart. The Selected population
+SNP coverage panel reports available and missing SNPs for each selection. The original tree viewer is available in the
+page navigation, or directly with `streamlit run viz/tree_app.py`.
+
+## Original tree viewer specifications
+Load a newick file with labeled nodes, allow file upload or pasting. Draw it allowing options for cladogram or phylogram. Keep tip labels but allow them to be hidden. Keep node labels but allow them to be hidden. Show branch distances. Provide controls for offsets for each of these labels. Allow the font size to be adjusted. Allow nodes to show name and distance on hover. For branch lengths over a certain configurable size (default 30), change their branch length for plotting to be that value but still label it with the original value.
+Load a metadata file. Assume the first column includes names that match the tip labels but offer a way to set which column should be used for lookup. Allow columns to be selected to be included in right aligned columns of color coded dots next to tips. Allow selection of which items to include in the tip labels instead of the current label, color code the text for each piece of meta data to match circles. Hovering over the tips should provide all metadata.
+Load a population frequency table with the following headers: "Sample  node    child_node      true_pos        relative_pos    node_site       derived_allele  derived_allele_frequency        edge_state1     edge_state2     chrom_matrix    chrom   pos     ref     depth   A       C       G       T       in_lofreq_vcf". Make a table of all of the unique Samples from this file and include any metadata that matches the Sample ID column in metadata. Also allow a selection of multiple rows of this table. Upon selection, the frequency and node data for the sample should be selected and plotted on the tree as barplots. The barplots associated with each node should be plotted on that node with multiple rows for each sample. The barplots should be color coded by sample with a key provided (the key could be a separate table with the metadata for the selected samples and a color). By default plot all of the nodes but have an option to remove nodes from being visible. Sort the values for one sample if only one is selected. If multiple are selected, sort by one of them by default but allow others to be selected. Have an option to use a more complex pca based sorting to pick the order of genome positions along each node (i want them to be generally decreasing in frequency as they go along). The spacing between rows, bars and bar height and width should be configurable and they should be the same for each node. It would be nice if they started with a reasonable default that fits on the branch. Have an option to only show genome positions that overlap across all samples currently being displayed. Also have an option to only show positions that have "lofreq support" based on the "in_lofreq_vcf" column. Also have a "minimum coverage" cutoff to only show genome positions where the coverage is over this value.
+
+
+
+## Run
+streamlit run app.py
+
+## Nested SNP Explorer (experimental alternative)
+From the project root, run `streamlit run viz/app.py` and select Nested SNP Explorer (Beta),
+or `streamlit run viz/nested_app.py` to launch the nested viewer directly.
+The original tree viewer is preserved in tree_app.py.
+
+The app defaults to Latest/Colony/all_runs.filtered_matrix.tsv plus
+Latest/app_data/paup_node_and_freq_matrix_all.tsv and Latest/MetaData metadata.
+The nested viewer does not require or use a PAUP node-change table. Uploads
+can replace the matrix, per-SNP population counts/frequencies and metadata.
+
+Alleles in the matrix define groups. Sites with one unambiguous allele shared
+by all displayed isolates belong to the root block, whether ancestral or not.
+At variable sites, alleles differing from the orientation isolate form carrier
+groups. Choose that isolate in the sidebar; the default is the first GCF/GCA
+reference genome, or the first matrix isolate if none exists. This orients
+splits without claiming an ancestral allele. Equal carrier sets combine into
+a branch and strict subsets nest under their smallest containing group.
+Incompatible overlapping groups and ambiguous calls are reported as unresolved.
+A multiallelic position may define more than one allele/group assignment.
+
+Population frequencies use the matrix group's actual allele: A/C/G/T read
+count divided by depth, using the same denominator as the frequency pipeline.
+Zero depth is missing. If counts are unavailable, the reported frequency is
+used only for its explicitly labeled allele. Other alleles are never assumed
+to be one minus that frequency. Conflicting duplicate observations remain
+missing, and missing counts are not interpreted as zero. Thus a C-defined
+group uses C/depth even when the older PAUP frequency row labels T as derived.
+
+The rotated overview has one row per selected isolate, with labels on the
+right and hierarchy levels running left to right. Recursive clade traversal
+orders isolates so every group occupies a contiguous interval; sample IDs
+break ties within indistinguishable groups. Isolates with no further private
+SNPs still receive their own rows. Each block spans exactly its carrier rows,
+so height equals isolate count, independent of SNP count. Counts are labels.
+Population selection and coverage appear above the overview. SNP bars use
+constant widths and a common frequency order across populations. An interactive HTML overview can be downloaded from the app.
+The isolate row order can also be inspected and downloaded as CSV.
+Choose the metadata ID column, color strips, and sample label coloring in the
+sidebar. Person, week, and BodySite strips are selected by default, with label
+colors based on Person. Missing metadata is gray; category legends and hover
+details are included in the interactive HTML export. Colors use categories
+from the whole metadata input so sample selection does not reassign them.
+Sidebar isolate filters select Person, Week, and Body site before building
+the hierarchy. Multiple choices within a field are combined; active fields
+must all match. Empty filters include all values, including missing metadata.
+Choose Missing explicitly to select isolates without a value. The Included
+isolates selector offers only matching isolates, selected by default; it can
+further narrow the display. Changing the filters rebuilds the nesting and
+updates the overview, population track branch assignments, and downloads.
+
+Select populations using the Show checkboxes in the main table above the
+chart. Click column headers to sort, or use the explicit sort controls.
+Search sample IDs and metadata, choose metadata filters, and select the
+columns to display. Selections are stored by sample ID and survive sorting
+and filtering; a caption counts selected populations hidden by filters.
+Select visible adds all matching rows; Clear selection removes all rows.
+Population row order follows selection order, independently of table sorting. Each block has one horizontal distribution row per selected population,
+stacked vertically beside the block. Row labels P1, P2, ... follow selection
+order, with full population IDs in the legend and on hover. For small blocks, rows show the same SNP positions from left to right, sorted
+by decreasing mean frequency across selected populations. Missing frequencies
+are excluded from the mean denominator; all-missing positions are retained
+at the end. Each SNP is a bar whose height encodes frequency on a 0–1 scale.
+Every SNP bar has the same width and spacing across groups. Its empty outline
+spans the full 0–1 height, while its fill shows the measured frequency. Positive frequencies have a
+one-pixel minimum visible height; hover and downloaded values retain the true
+frequency. Measured zeros and missing values do not receive this minimum.
+A colored tick indicates measured zero; missing measurements fill the entire
+unit-height box gray. Hover anywhere within a SNP box for population metadata,
+SNP identity and measured frequency or missing status, including populations
+with no available measurements for that block. SNP order and means are included in downloads. Auto mode uses
+SNP bars for small groups and horizontal boxen plots above the configurable
+SNP-count threshold. Boxen plots have a fixed scale with 0 at the left, 0.5 in
+the middle and 1 at the right, repeated identically for every population and
+group. Boxen plots show nested letter-value intervals (quartiles, eighths, sixteenths,
+etc.) with Tukey depth max(floor(log2(n))-3, 1), using available values only.
+Hover reports percentile intervals and available/missing counts; median and
+extreme tail observations are also shown.
+Only available values enter the summaries. An empty block says 0 SNPs; a
+populated block with no available measurements says No data. The HTML download
+includes the selected populations and metadata.
+
+## Frequency branch mapping
+Frequency rows use `node` as the parent and `child_node` as the child. Both
+individual SNP bars and large-branch frequency-range summaries are placed on
+that exact branch. Large-branch summaries must preserve the original child and
+use `summary_scope=sample_branch`; older pooled parent-node summaries must be
+regenerated with the updated pipeline. The app reports an error for those legacy
+summaries and warns when frequency branches do not match the uploaded tree.
+Use a tree, node-change table, SNP matrix, and regenerated frequency output from
+the same analysis.
